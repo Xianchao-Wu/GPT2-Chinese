@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import os
 import argparse
 from tqdm import trange
-from transformers import GPT2LMHeadModel
+from transformers import GPT2LMHeadModel # NOTE reuse transformer's class!
 
 
 def is_word(word):
@@ -46,7 +46,10 @@ def top_k_top_p_filtering(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')
                 Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751)
         From: https://gist.github.com/thomwolf/1a5a29f6962089e871b94cbd09daf317
     """
-    assert logits.dim() == 1  # batch size 1 for now - could be updated for more but the code would be less clear
+    #import ipdb; ipdb.set_trace()
+    assert logits.dim() == 1  
+    # batch size 1 for now - could be updated for more but the code would be less clear
+
     top_k = min(top_k, logits.size(-1))  # Safety check
     if top_k > 0:
         # Remove all tokens with a probability less than the last token of the top-k
@@ -68,8 +71,10 @@ def top_k_top_p_filtering(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')
     return logits
 
 
-def sample_sequence(model, context, length, n_ctx, tokenizer, temperature=1.0, top_k=30, top_p=0.0, repitition_penalty=1.0,
-                    device='cpu'):
+def sample_sequence(model, context, length, n_ctx, tokenizer, 
+        temperature=1.0, top_k=30, top_p=0.0, repitition_penalty=1.0,
+        device='cpu'):
+    import ipdb; ipdb.set_trace()
     context = torch.tensor(context, dtype=torch.long, device=device)
     context = context.unsqueeze(0)
     generated = context
@@ -90,35 +95,47 @@ def sample_sequence(model, context, length, n_ctx, tokenizer, temperature=1.0, t
 
 
 def fast_sample_sequence(model, context, length, temperature=1.0, top_k=30, top_p=0.0, device='cpu'):
-    inputs = torch.LongTensor(context).view(1, -1).to(device)
+    import ipdb; ipdb.set_trace()
+    inputs = torch.LongTensor(context).view(1, -1).to(device) # 提示词, "我 是 谁" -> context=[2769, 3221, 6443]
     if len(context) > 1:
-        _, past = model(inputs[:, :-1], None)[:2]
-        prev = inputs[:, -1].view(1, -1)
+        _, past = model(inputs[:, :-1], None)[:2] # '我'  '是'; len(past) = 12, 
+        prev = inputs[:, -1].view(1, -1) # '谁'; prev=tensor([[6443]], device='cuda:0')
     else:
         past = None
         prev = inputs
-    generate = [] + context
+    generate = [] + context # [2769, 3221, 6443]
     with torch.no_grad():
-        for i in trange(length):
+        for i in trange(length): # length=32, output seq length
             output = model(prev, past=past)
-            output, past = output[:2]
-            output = output[-1].squeeze(0) / temperature
-            filtered_logits = top_k_top_p_filtering(output, top_k=top_k, top_p=top_p)
-            next_token = torch.multinomial(torch.softmax(filtered_logits, dim=-1), num_samples=1)
-            generate.append(next_token.item())
+            # output[0] -> torch.Size([1, 1, 21128]) 
+            # len(output[1]) = 12
+
+            output, past = output[:2] # 注意，这里past被更新了！ NOTE
+
+
+            output = output[-1].squeeze(0) / temperature # 得到：output.shape = torch.Size([21128])
+
+            filtered_logits = top_k_top_p_filtering(output, top_k=top_k, top_p=top_p) # 挑选k个概率最大的
+
+            next_token = torch.multinomial(torch.softmax(filtered_logits, dim=-1), num_samples=1) 
+            # 选择下一个token
+
+            generate.append(next_token.item()) # 把新生成的一个词next_token追加到当前的序列"generate"
             prev = next_token.view(1, 1)
     return generate
 
 
 # 通过命令行参数--fast_pattern，指定模式
-def generate(n_ctx, model, context, length, tokenizer, temperature=1, top_k=0, top_p=0.0, repitition_penalty=1.0, device='cpu',
-             is_fast_pattern=False):
+def generate(n_ctx, model, context, length, tokenizer, 
+        temperature=1, top_k=0, top_p=0.0, repitition_penalty=1.0, device='cpu',
+        is_fast_pattern=False):
     if is_fast_pattern:
-        return fast_sample_sequence(model, context, length, temperature=temperature, top_k=top_k, top_p=top_p,
-                                    device=device)
+        return fast_sample_sequence(model, context, length, temperature=temperature, 
+                top_k=top_k, top_p=top_p, device=device)
     else:
-        return sample_sequence(model, context, length, n_ctx, tokenizer=tokenizer, temperature=temperature, top_k=top_k, top_p=top_p,
-                               repitition_penalty=repitition_penalty, device=device)
+        return sample_sequence(model, context, length, n_ctx, 
+                tokenizer=tokenizer, temperature=temperature, top_k=top_k, top_p=top_p,
+                repitition_penalty=repitition_penalty, device=device)
 
 
 def main():
@@ -144,14 +161,14 @@ def main():
 
     args = parser.parse_args()
     print('args:\n' + args.__repr__())
-
+    import ipdb; ipdb.set_trace()
     if args.segment:
         from tokenizations import tokenization_bert_word_level as tokenization_bert
     else:
         from tokenizations import tokenization_bert
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.device  # 此处设置程序使用哪些显卡
-    length = args.length
+    length = args.length # 输出文本（自动生成）的长度
     batch_size = args.batch_size
     nsamples = args.nsamples
     temperature = args.temperature
@@ -160,33 +177,49 @@ def main():
     repetition_penalty = args.repetition_penalty
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    tokenizer = tokenization_bert.BertTokenizer(vocab_file=args.tokenizer_path) 
+    # 根据transformer的tokenizer来初始化一个bert分词器; tokenizer.vocab
 
-    tokenizer = tokenization_bert.BertTokenizer(vocab_file=args.tokenizer_path)
-    model = GPT2LMHeadModel.from_pretrained(args.model_path)
+    print(tokenizer.vocab) # print vocab
+    model = GPT2LMHeadModel.from_pretrained(args.model_path) # 根据transformer包，构造一个gpt2 lm head model
+    model_size = sum([p.numel() for p in model.parameters() if p.requires_grad])
     model.to(device)
     model.eval()
 
     n_ctx = model.config.n_ctx
-
+    print('model.config=\n', model.config)
     if length == -1:
-        length = model.config.n_ctx
+        length = model.config.n_ctx # 如果不指定输出length，那么就默认输出长度为1024
     if args.save_samples:
         if not os.path.exists(args.save_samples_path):
             os.makedirs(args.save_samples_path)
-        samples_file = open(args.save_samples_path + '/samples.txt', 'w', encoding='utf8')
+        samples_file = open(args.save_samples_path + '/samples.txt', 'w', encoding='utf8') # 保存输出结果
+
+    # 开始生成过程： TODO
     while True:
-        raw_text = args.prefix
+        raw_text = args.prefix # 用户指定的“引子”（线索）
         context_tokens = tokenizer.convert_tokens_to_ids(tokenizer.tokenize(raw_text))
+        # 1. tokenize : '我是谁' -> ['我', '是', '谁']
+        # 2. tokens to ids: [2769, 3221, 6443]
+
         generated = 0
-        for _ in range(nsamples // batch_size):
+        for _ in range(nsamples // batch_size): # 8//1 = 8, one batch with 8 samples: 八路~~
+            import ipdb; ipdb.set_trace()
             out = generate(
                 n_ctx=n_ctx,
                 model=model,
                 context=context_tokens,
                 length=length,
-                is_fast_pattern=args.fast_pattern, tokenizer=tokenizer,
-                temperature=temperature, top_k=topk, top_p=topp, repitition_penalty=repetition_penalty, device=device
+                is_fast_pattern=args.fast_pattern, 
+                tokenizer=tokenizer,
+                temperature=temperature, 
+                top_k=topk, 
+                top_p=topp, 
+                repitition_penalty=repetition_penalty, 
+                device=device
             )
+
+            import ipdb; ipdb.set_trace()
             for i in range(batch_size):
                 generated += 1
                 text = tokenizer.convert_ids_to_tokens(out)
