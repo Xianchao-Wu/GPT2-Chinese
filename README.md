@@ -7,6 +7,7 @@
 docker pull nvcr.io/nvidia/pytorch:21.11-py3
 ```
 参考URL: https://docs.nvidia.com/deeplearning/frameworks/dlprof-user-guide/
+https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch/tags
 
 运行该docker image的命令：
 
@@ -18,6 +19,11 @@ sudo nvidia-docker run -dit --shm-size=40gb -v /raid/xianchaow/megatron:/workspa
 ```bash
 alias domeg="sudo docker exec -it -w /workspace/megatron 169c5397dc5c /bin/bash"
 ```
+
+我目前使用的模型：
+歌词的model:
+
+https://drive.google.com/drive/folders/1RFq4NoQ3phCJjrhKtu2Xbn6z0krcN9TM
 
 
 - Chinese version of GPT2 training code, using BERT tokenizer or BPE tokenizer. It is based on the extremely awesome repository from HuggingFace team [Transformers](https://github.com/huggingface/transformers). Can write poems, news, novels, or train general language models. Support char level, word level and BPE level. Support large training corpus.
